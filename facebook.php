@@ -1,21 +1,18 @@
 <?php 
-	App::import('Vendor', 'HttpSocketOauth');
-	
 	class FacebookComponent extends Object {
 		//Name
 		var $name = 'Facebook';
 		//Components
 		var $components = array('Cookie', 'Session');
-		/*
-		 * The APP-ID and App Secret
-		 */
-		private $app_id, $app_secret;
+		
 		//============OAuthSetup anc connect
 		
 		/*
-		 * OAuth 
+		 * The APP-ID and App Secret
+		 * 
+		 * @access private
 		 */
-		private $oAuth;
+		private $app_id, $app_secret;
 		/*
 		 * setup
 		 */ 
@@ -43,12 +40,95 @@
 		}
 		
 		/*
+		 * Connect to Facebook
+		 * 
+		 * @access public
+		 * @param string $redirect_url The for the redirect after the authetication 
+		 */
+		public function connect($redirect_url) {
+			$id = $this->app_id;	
+			$url = 'https://www.facebook.com/dialog/oauth?client_id='.$id.'&redirect_uri='.$redirect_url;			
+			
+			echo("<script>top.location.href='".$url."'</script>");
+		}
+		/*
+		 * Authenticate the user for the Facebook Graph-API
+		 * 
+		 * @access public
+		 * @param string $redirect_url The url where the user should be redirected to
+		 * @param string $code The you got after you have called $this->connect 
+		 */
+		public function connect_user($redirect_url, $code) {
+			$id = $this->app_id;
+			$secret = $this->app_secret;
+			
+			$url = "https://graph.facebook.com/oauth/access_token?"
+			. "client_id=" . $this->app_id . "&redirect_uri=" . urlencode($redirect_url)
+			. "&client_secret=" . $this->app_secret . "&code=" . $code;
+			//Request the access token
+			$response = file_get_contents($url);
+			$params = null;
+			parse_str($response, $params);
+			//print_r($params);
+			//Save session and user
+			$this->setFacebookUser($params['access_token']);
+		}
+		/*
+		 * The access token of the Facebook user
+		 * 
+		 * @access private
+		 */
+		private $access_token;
+		/*
+		 * Set the Facebook users access token and save in a local session
+		 * 
+		 * @access public
+		 * @param string $access_token The access for the Facebook User
+		 */ 
+		public function setFacebookUser($access_token) {
+			//Current session
+			$current_session = $this->Session->read('Facebook.User');
+			//Content for session
+			$session_content = array('access_token' => $access_token);
+			//Check session content
+			if(!is_null($current_session)) $this->Session->delete('Facebook.User');
+			//Save access token in $this->access_token
+			$this->access_token = $access_token;
+			//Save a new Session with user content
+			$this->Session->write('Facebook.User', $session_content);	
+		}
+		//============
+		
+		
+		/*
+		 * Show and return the current access token and Facebook User
+		 * 
+		 * @access public
+		 * @return array()
+		 * @param bool $show_full_profile Set true to get the full user-profile
+		 */
+		public function getFacebookUser($show_full_profile) {
+			$user = array();
+			//Check access token
+			if($this->access_token == '') {
+				$session = $this->Session->read('Facebook.User');
+				if(!is_null($session)) $user['access_token'] = $session['access_token'];
+			}
+			else $user['access_token'] = $this->access_token;
+			//Show full user profile
+			if($show_full_profile == true) {
+				$url =	"https://graph.facebook.com/me?access_token=".$this->access_token; 			
+				$user['profile'] = json_decode(file_get_contents($url), true);
+			}
+			return $user;
+		}
+		
+		//============
+		/*
 		 * Initalize function
 		 */ 
 		 public function initialize(&$controller, $settings = array()) {
-		 	//Create a new oauth socket
-		 	$this->oAuth = new HttpSocketOauth();
-			//Check for App-ID and App secret
+			//Check App-ID and App secret
 			if($this->app_id == '' || $this->app_secret == '') {
 				$cookie = $this->Cookie->read('Facebook.App');
 				if(!is_null($cookie)) {
@@ -63,7 +143,25 @@
 					}
 				} 
 			}
+			//Check access token
+			if($this->access_token == '') {
+				$token_session = $this->Session->read('Facebook.User');
+				if(!is_null($token_session)) $this->access_token = $token_session['access_token'];
+			}
+			//
 			$this->controller =& $controller;
+		 }
+		 //============
+		 
+		 /*
+		  * Show current status of Facebook connection
+		  * 
+		  * @access public
+		  * @return boolean
+		  */
+		 public function status() {
+		 	if($this->app_id != '' && $this->app_secret != '' && $this->access_token != '') return true;
+			else return false;
 		 }
 	}
 ?>
