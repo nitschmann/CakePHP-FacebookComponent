@@ -98,7 +98,7 @@
 			$this->Session->write('Facebook.User', $session_content);	
 		}
 		//============
-		
+		//============Facebook user functions
 		
 		/*
 		 * Show and return the current access token and Facebook User
@@ -122,7 +122,17 @@
 			}
 			return $user;
 		}
-		
+		/*
+		 * Logout the current Facebook user
+		 * 
+		 * @access public
+		 */
+		public function logoutFacebookUser() {
+			//Set keys to null
+			$this->access_token = null;
+			//Destroy session
+			if(!is_null($this->Session->read('Facebook.User'))) $this->Session->delete('Facebook.User');
+		}
 		//============
 		/*
 		 * Initalize function
@@ -151,10 +161,33 @@
 			//
 			$this->controller =& $controller;
 		 }
-		 //============
+		 //============Status Methods
 		 
 		 /*
-		  * Show current status of Facebook connection
+		  * Status of the app (Checks if the APP-ID and APP secret are already stored )
+		  * 
+		  * @access public
+		  * @return boolean
+		  */
+		 public function appStatus() {
+		 	if($this->app_id != '' && $this->app_secret != '') return true;
+			else return false;
+		 }
+		 /*
+		  * Status of the Facebook user (checks if a access token is available)
+		  * 
+		  * @access public
+		  * @return boolean
+		  */
+		 public function userStatus() {
+		 	if($this->appStatus() == true) {
+		 		if($this->access_token != '') return true;
+				else return false; 
+		 	}
+			else return false;
+		 }
+		 /*
+		  * Show current status of the full Facebook connection
 		  * 
 		  * @access public
 		  * @return boolean
