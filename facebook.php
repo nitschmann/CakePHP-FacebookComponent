@@ -96,12 +96,18 @@
 		 * @param string $access_token The access for the Facebook User
 		 */ 
 		public function loginFacebookUser($access_token) {
-			//Session content
-			$session_content = array('access_token' => $access_token);
-			//Check session content
-			if($this->userStatus() == true) $this->logoutFacebookUser();
 			//Save access token
 			$this->access_token = $access_token;
+			//Check session content
+			if($this->userStatus() == true) $this->logoutFacebookUser();
+			//Users profile
+			$user_profile = json_decode($this->HttpSocket->get('https://graph.facebook.com/me', 'access_token='.$access_token.''), true);
+			//Session content
+			$session_content = array(
+				'access_token' => $access_token,
+				'id' => $user_profile['id'],
+				'name' => $user_profile['name']
+			); 
 			//New session for current user
 			$this->Session->write('Facebook.User', $session_content);	
 		}
@@ -113,20 +119,13 @@
 		 * @return array()
 		 * @param bool $show_full_profile Set true to get the full user-profile
 		 */
-		public function getFacebookUser($show_full_profile) {
-			$user = array();
-			//Check access token
-			if($this->access_token == '') {
-				$session = $this->Session->read('Facebook.User');
-				if(!is_null($session)) $user['access_token'] = $session['access_token'];
+		public function showFacebookUser($show_full_profile = false) {
+			if($this->userStatus() == true) {
+				$user = $this->Session->read('Facebook.User');
+				if($show_full_profile == true) $user['profile'] = $this->myProfile();
+				return $user;
 			}
-			else $user['access_token'] = $this->access_token;
-			//Show full user profile
-			if($show_full_profile == true) {
-				$url =	"https://graph.facebook.com/me?access_token=".$this->access_token; 			
-				$user['profile'] = json_decode(file_get_contents($url), true);
-			}
-			return $user;
+			else return null;
 		}
 		/*
 		 * Logout the current Facebook user
@@ -137,7 +136,7 @@
 			//Set keys to null
 			$this->access_token = null;
 			//Destroy session
-			if(!is_null($this->Session->read('Facebook.User'))) $this->Session->delete('Facebook.User');
+			if($this->userStatus() == true) $this->Session->delete('Facebook.User');
 		}
 		//============
 		/*
@@ -207,7 +206,131 @@
 		 	if($this->appStatus() == true && $this->userStatus() == true) return true;
 			else return false;
 		 }
-		
-		//============Facebook API Methods
+		 
+		 //===My-Profile API Mehthods
+		 
+		 /*
+		  * Make custom API-Requests on the authenticated user profile
+		  *(See: https://developers.facebook.com/docs/reference/api/ for more information)
+		  * 
+		  * @access private
+		  * @return JSON
+		  * @param string $action The specific action for the 'thing' of the profile wich 
+		  * should be called
+		  */
+		 private function myProfileApiRequest($action) {
+		 	//Action
+		 	if(substr($action, 0, 1) == '/') $action = substr($action, 1, strlen($action));
+		 	//Query 
+		 	$query = array('access_token' => $this->access_token);
+			//Request array
+			$request = array(
+				'method' => 'GET',
+				'uri' => array(
+					'scheme' => 'https',
+					'host' => 'graph.facebook.com/me',
+					'path' => '/'.$action,
+					'query' => $query
+				) 
+			);
+			//Request and return 
+			return $this->HttpSocket->request($request);
+		 }
+		 
+		 /*
+		  * Show the full profile of the authenticated user
+		  * 
+		  * @access public
+		  * @return array
+		  */
+		 public function myProfile() {
+		 	//Query
+		 	$query = 'access_token='.$this->access_token;
+			//Request and return 
+		  	return json_decode($this->HttpSocket->get('https://graph.facebook.com/me', $query), true);
+		 }
+		 
+		 //Friends
+		 public function myFriends() {
+		 	return json_decode($this->myProfileApiRequest('/friends'), true);
+		 }
+		 
+		 //Newsfeed (Home)	 
+		 public function myNewsFeed() {
+		 	return json_decode($this->myProfileApiRequest('/home'), true);
+		 }
+		 
+		 //Wall 
+		 public function myProfileFeed() {
+		 	return json_decode($this->myProfileApiRequest('/feed'), true);
+		 }
+		 
+		 //Likes
+		 public function myLikes() {
+		 	return json_decode($this->myProfileApiRequest('/likes'), true);
+		 }
+		 
+		 //Movies
+		 public function myMovies() {
+		 	return json_decode($this->myProfileApiRequest('/movies'), true);
+		 }
+		 
+		 //Music
+		 public function myMusic() {
+		 	return json_decode($this->myProfileApiRequest('/music'), true);
+		 }
+		 
+		 //Books
+		 public function myBooks() {
+		 	return json_decode($this->myProfileApiRequest('/books'), true);
+		 }
+		 
+		 //Notes
+		 public function myNotes() {
+		 	return json_decode($this->myProfileApiRequest('/notes'), true);
+		 }
+		 
+		 //Permissions
+		 public function myPermissions() {
+		 	return json_decode($this->myProfileApiRequest('/permissions'), true);
+		 }
+		 
+		 //Photos
+		 public function myPhotoTags() {
+		 	return json_decode($this->myProfileApiRequest('/photos'), true);
+		 }
+		 
+		 //Photo Albums
+		 public function myAlbums() {
+		 	return json_decode($this->myProfileApiRequest('/albums'), true);
+		 }
+		 
+		 //Video Tags
+		 public function myVideoTags() {
+		 	return json_decode($this->myProfileApiRequest('/videos'), true);
+		 }
+		 
+		 //Uploaded videos
+		 public function myUploadedVideos() {
+		 	return json_decode($this->myProfileApiRequest('/videos/uploaded'), true);
+		 }
+		 
+		 //Events
+		 public function myEvents() {
+		 	return json_decode($this->myProfileApiRequest('/events'), true);
+		 }
+		 
+		 //Groups
+		 public function myGroups() {
+		 	return json_decode($this->myProfileApiRequest('/groups'), true);
+		 }
+		 
+		 //Checkins
+		 public function myCheckins() {
+		 	return json_decode($this->myProfileApiRequest('/checkins'), true);
+		 }		 
+		 
+		 
+	//---End 		
 	}
 ?>
