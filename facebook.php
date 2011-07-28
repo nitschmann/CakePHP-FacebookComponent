@@ -1,12 +1,20 @@
 <?php 
+	App::import('Core', 'HttpSocket');
+
 	class FacebookComponent extends Object {
-		//Name
 		var $name = 'Facebook';
 		//Components
 		var $components = array('Cookie', 'Session');
 		
-		//============OAuthSetup anc connect
-		
+		/*
+		 * The global var for the CakePHP HttpSocket
+		 * 
+		 * @access private
+		 */
+		private $HttpSocket;
+
+		//===App -and Auth vars
+				
 		/*
 		 * The APP-ID and App Secret
 		 * 
@@ -14,9 +22,16 @@
 		 */
 		private $app_id, $app_secret;
 		/*
-		 * setup
-		 */ 
-		public function setup($app_id, $app_secret, $cookie) {
+		 * The access token of the Facebook user
+		 * 
+		 * @access private
+		 */
+		private $access_token;
+
+		 
+		//===OAuth setup -and connect
+
+		public function appSetup($app_id, $app_secret, $cookie) {
 			$this->app_id = $app_id;
 			$this->app_secret = $app_secret;
 			//Content for session and cookie
@@ -26,15 +41,12 @@
 			);
 			//Check if cookie is allowed
 			if($cookie == true) {
-				//Facebook OAuth Cookie
-				$fb_oauth_cookie = $this->Cookie->read('Facebook.App');
-				//Check for content
-				if(is_null($fb_oauth_cookie)) $this->Cookie->write('Facebook.App', $content, true, '+365 day');
-				else {
-					$this->Cookie->delete('Facebook.App');
-					$this->Cookie->write('Facebook.App', $content, true, '+365 day');
-				}	
+				if(!is_null($this->Cookie->read('Facebook.App'))) $this->Cookie->delete('Facebook.App');
+				//Write cookie
+				$this->Cookie->write('Facebook.App', $content, true, '+365 day');
 			}
+			//Check local session if isset 
+			if(!is_null($this->Session->read('Facebook.App'))) $this->Cookie->delete('Facebook.App');
 			//Session in local store
 			$this->Session->write('Facebook.App', $content);
 		}
@@ -43,62 +55,56 @@
 		 * Connect to Facebook
 		 * 
 		 * @access public
-		 * @param string $redirect_url The for the redirect after the authetication 
+		 * @param string $redirect_url The for the redirect after the authetication
+		 * @param string $scopes A string with a ',' separated specific permissions of the app
+		 * (See: https://developers.facebook.com/docs/reference/api/permissions/ for more information)
 		 */
-		public function connect($redirect_url) {
-			$id = $this->app_id;	
-			$url = 'https://www.facebook.com/dialog/oauth?client_id='.$id.'&redirect_uri='.$redirect_url;			
-			
-			echo("<script>top.location.href='".$url."'</script>");
+		public function connect($redirect_url, $scopes = null) {
+			$id = $this->app_id;
+			if($scopes == null || $scopes == '') {	
+				$url = 'https://www.facebook.com/dialog/oauth?client_id='.$id.'&redirect_uri='.$redirect_url;			
+			}
+			else {
+				$url = 'https://www.facebook.com/dialog/oauth?client_id='.$id.'&redirect_uri='.$redirect_url.'&scope='.$scopes;			
+			}
+			//Redirect 
+			header('Location: '.$url);
 		}
 		/*
 		 * Authenticate the user for the Facebook Graph-API
 		 * 
 		 * @access public
-		 * @param string $redirect_url The url where the user should be redirected to
+		 * @param string $redirect_uri The url where the user should be redirected to
 		 * @param string $code The you got after you have called $this->connect 
 		 */
-		public function connect_user($redirect_url, $code) {
-			$id = $this->app_id;
-			$secret = $this->app_secret;
-			
-			$url = "https://graph.facebook.com/oauth/access_token?"
-			. "client_id=" . $this->app_id . "&redirect_uri=" . urlencode($redirect_url)
-			. "&client_secret=" . $this->app_secret . "&code=" . $code;
-			//Request the access token
-			$response = file_get_contents($url);
-			$params = null;
-			parse_str($response, $params);
-			//print_r($params);
-			//Save session and user
-			$this->setFacebookUser($params['access_token']);
+		public function authenticateFacebookUser($redirect_uri, $code) {
+			//Query 
+			$query = "client_id=".$this->app_id."&redirect_uri=".rawurlencode($redirect_uri)."&client_secret=".$this->app_secret."&code=".$code;
+			//Request 
+			$result = $this->HttpSocket->get('https://graph.facebook.com/oauth/access_token', $query);
+			parse_str($result, $result);
+			//Login the user 
+			$this->loginFacebookUser($result['access_token']);
 		}
-		/*
-		 * The access token of the Facebook user
-		 * 
-		 * @access private
-		 */
-		private $access_token;
+
+		//============Facebook user functions
+
 		/*
 		 * Set the Facebook users access token and save in a local session
 		 * 
 		 * @access public
 		 * @param string $access_token The access for the Facebook User
 		 */ 
-		public function setFacebookUser($access_token) {
-			//Current session
-			$current_session = $this->Session->read('Facebook.User');
-			//Content for session
+		public function loginFacebookUser($access_token) {
+			//Session content
 			$session_content = array('access_token' => $access_token);
 			//Check session content
-			if(!is_null($current_session)) $this->Session->delete('Facebook.User');
-			//Save access token in $this->access_token
+			if($this->userStatus() == true) $this->logoutFacebookUser();
+			//Save access token
 			$this->access_token = $access_token;
-			//Save a new Session with user content
+			//New session for current user
 			$this->Session->write('Facebook.User', $session_content);	
 		}
-		//============
-		//============Facebook user functions
 		
 		/*
 		 * Show and return the current access token and Facebook User
@@ -138,30 +144,35 @@
 		 * Initalize function
 		 */ 
 		 public function initialize(&$controller, $settings = array()) {
-			//Check App-ID and App secret
-			if($this->app_id == '' || $this->app_secret == '') {
-				$cookie = $this->Cookie->read('Facebook.App');
-				if(!is_null($cookie)) {
-					$this->app_id = $cookie['app_id'];
-					$this->app_secret = $cookie['app_secret'];
-				}
-				else {
-					$session = $this->Session->read('Facebook.App');
-					if(!is_null($session)) {
-						$this->app_id = $session['app_id'];
-						$this->app_secret = $session['app_secret'];
+		 	//Initialize a new HttpSocket
+		 	$this->HttpSocket = new HttpSocket();
+			//Connections
+			if($this->status() == false) {
+				//Check App-ID and App secret
+				if($this->appStatus() != true) {
+					$cookie = $this->Cookie->read('Facebook.App');
+					if(!is_null($cookie)) {
+						$this->app_id = $cookie['app_id'];
+						$this->app_secret = $cookie['app_secret'];
 					}
-				} 
+					else {
+						$session = $this->Session->read('Facebook.App');
+						if(!is_null($session)) {
+							$this->app_id = $session['app_id'];
+							$this->app_secret = $session['app_secret'];
+						}
+					} 
+				}
+				//Check access token
+				if($this->userStatus() != true) {
+					$token_session = $this->Session->read('Facebook.User');
+					if(!is_null($token_session)) $this->access_token = $token_session['access_token'];
+				}
 			}
-			//Check access token
-			if($this->access_token == '') {
-				$token_session = $this->Session->read('Facebook.User');
-				if(!is_null($token_session)) $this->access_token = $token_session['access_token'];
-			}
-			//
+			//---
 			$this->controller =& $controller;
 		 }
-		 //============Status Methods
+		 //============App-Status Methods
 		 
 		 /*
 		  * Status of the app (Checks if the APP-ID and APP secret are already stored )
@@ -193,8 +204,10 @@
 		  * @return boolean
 		  */
 		 public function status() {
-		 	if($this->app_id != '' && $this->app_secret != '' && $this->access_token != '') return true;
+		 	if($this->appStatus() == true && $this->userStatus() == true) return true;
 			else return false;
 		 }
+		
+		//============Facebook API Methods
 	}
 ?>
